@@ -30,7 +30,9 @@ namespace BasicKL
             if (!validId)
             {
                 gid = Guid.NewGuid();
-                ConfigurationManager.AppSettings["myId"] = gid.ToString();
+                Configuration config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                config.AppSettings.Settings["myId"].Value = gid.ToString();
+                config.Save();
             }
 
             Logger log = new Logger(gid);

